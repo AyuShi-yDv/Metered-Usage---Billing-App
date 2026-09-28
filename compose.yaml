@@ -1,0 +1,69 @@
+services:
+  ingest-db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: ingest
+      POSTGRES_USER: ingest
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ingest -d ingest"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes: [ingest-data:/var/lib/postgresql/data]
+  billing-db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: billing
+      POSTGRES_USER: billing
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billing -d billing"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes: [billing-data:/var/lib/postgresql/data]
+  rabbitmq:
+    image: rabbitmq:3.13.7-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-app}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-app}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  ingest:
+    build: ./services/ingest
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ingest:${POSTGRES_PASSWORD:-postgres}@ingest-db:5432/ingest
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASSWORD:-app}@rabbitmq:5672/
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
+    depends_on:
+      ingest-db: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    ports: ["8000:8000"]
+  billing:
+    build: ./services/billing
+    environment:
+      DATABASE_URL: postgresql+asyncpg://billing:${POSTGRES_PASSWORD:-postgres}@billing-db:5432/billing
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASSWORD:-app}@rabbitmq:5672/
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
+    depends_on:
+      billing-db: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    ports: ["8001:8001"]
+  generator:
+    build: ./generator
+    environment:
+      INGEST_URL: http://ingest:8000
+      EVENTS_PER_SECOND: "4"
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
+    depends_on: [ingest]
+  frontend:
+    build: ./frontend
+    depends_on: [billing]
+    ports: ["5173:80"]
+volumes:
+  ingest-data:
+  billing-data:
