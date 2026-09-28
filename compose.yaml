@@ -63,7 +63,7 @@ services:
   frontend:
     build: ./frontend
     depends_on: [billing]
-    ports: ["5173:80"]
+    ports: ["5173:8080"]
 volumes:
   ingest-data:
   billing-data:
