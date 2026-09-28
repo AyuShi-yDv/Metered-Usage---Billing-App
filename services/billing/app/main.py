@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 import aio_pika
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from .config import settings
 from .db import Session
@@ -53,6 +54,13 @@ async def lifespan(_: FastAPI):
     for task in tasks: task.cancel()
 
 app = FastAPI(title="billing-service", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 
 @app.get("/healthz")
 async def healthz(): return {"ok": True}
