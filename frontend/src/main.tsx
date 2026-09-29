@@ -27,7 +27,7 @@ function App() {
   const accounts=useQuery({queryKey:['accounts',page,search,sort],queryFn:()=>fetchJson(`/accounts?page=${page}&page_size=10&search=${encodeURIComponent(search)}&sort=${sort}`)});
   const detail=useQuery({queryKey:['detail',account],queryFn:()=>fetchJson(`/accounts/${account}`)});
   const invoices=useQuery({queryKey:['invoices',account],queryFn:()=>fetchJson(`/invoices/${account}`)});
-  const plans=useQuery({queryKey:['plans'],queryFn:()=>fetchJson('/plans')});
+  const plans=useQuery({queryKey:['plans',account],queryFn:()=>fetchJson(`/accounts/${account}/plans`)});
   const whatIf=useQuery({queryKey:['what-if',account,alternativePlan],queryFn:()=>fetchJson(`/accounts/${account}/what-if?plan_id=${alternativePlan}`),enabled:false});
   const preview=useQuery({queryKey:['invoice-preview',account,invoiceMonth],queryFn:()=>fetchJson(`/invoices/preview/${account}/${invoiceMonth}-01T00:00:00Z`),enabled:false});
   const keys=useQuery({queryKey:['keys',account],queryFn:()=>fetchJson(`/accounts/${account}/api-keys`)});

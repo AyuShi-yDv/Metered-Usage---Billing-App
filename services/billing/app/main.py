@@ -13,6 +13,7 @@ from .db import Session
 from .reports import TIME_SERIES_SQL, P95_SQL, MTD_SQL, TOP_OVERAGE_SQL
 from .worker import process_one_rollup
 from .charges import PERIOD_CHARGES_SQL, WHAT_IF_SQL
+from .authorization import account_token_is_authorized
 
 DEMO_ACCOUNT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
@@ -122,10 +123,9 @@ async def security_headers(request, call_next):
     return response
 
 def authorize(account_id: UUID, token: str) -> None:
-    import hmac
-    # The configured dashboard credential is the demo Finance role and can
-    # access account reports; customer deployments must issue account claims.
-    if not hmac.compare_digest(token, settings.dashboard_token):
+    # Finance is explicitly cross-account. Customer tokens are configured per
+    # account, so possessing one account's credential cannot authorize another.
+    if not account_token_is_authorized(account_id, token, settings.dashboard_token, settings.account_dashboard_tokens):
         raise HTTPException(403,"account access denied")
 
 def require_utc_offsets(*values: datetime) -> None:
@@ -139,6 +139,13 @@ async def healthz(): return {"ok": True}
 async def plans(x_dashboard_token: str = Header(default="")):
     if not __import__("hmac").compare_digest(x_dashboard_token, settings.dashboard_token):
         raise HTTPException(401, "unauthorized")
+    async with Session() as db:
+        rows = (await db.execute(text("SELECT id,name,included_calls,overage_cents_per_1000,monthly_base_fee_cents FROM plans ORDER BY monthly_base_fee_cents,id"))).mappings().all()
+    return {"data": rows}
+
+@app.get("/accounts/{account_id}/plans")
+async def account_plans(account_id: UUID, x_dashboard_token: str = Header(default="")):
+    authorize(account_id, x_dashboard_token)
     async with Session() as db:
         rows = (await db.execute(text("SELECT id,name,included_calls,overage_cents_per_1000,monthly_base_fee_cents FROM plans ORDER BY monthly_base_fee_cents,id"))).mappings().all()
     return {"data": rows}

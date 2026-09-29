@@ -10,6 +10,6 @@
 
 **Plan changes and what-if.** Plan ranges cannot overlap, and a future change closes the current range and starts another in one transaction. Invoice base fees, included calls, and overage are prorated by exact active seconds, with cents rounded after segment amounts are summed; the what-if view applies an alternative plan to the same trailing 30 days.
 
-**Key management.** Public ingestion is on port 8000; key mutation lives on a separate 8002 listener that is not published by Compose. The demo dashboard credential is a finance-wide role, not an end-customer identity; a production deployment must replace it with account-scoped claims. The billing proxy forwards its service token, retries GETs only, and does not replay create/rotate because a timeout could otherwise create another secret.
+**Key management.** Public ingestion is on port 8000; key mutation lives on a separate 8002 listener that is not published by Compose. Demo finance has an explicit cross-account token, while optional per-account credentials cannot authorize another account; production should replace static token configuration with an authenticated identity provider. The billing proxy forwards its service token, retries GETs only, and does not replay create/rotate because a timeout could otherwise create another secret.
 
 **With another week.** Add authenticated human users, credit notes, observability, and a production secrets manager. At 100x data, partition event facts by month and replace broad p95 scans with mergeable percentile sketches.

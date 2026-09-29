@@ -61,6 +61,7 @@ services:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
       INGEST_MANAGEMENT_URL: http://ingest:8002
       DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-demo-dashboard-token}
+      ACCOUNT_DASHBOARD_TOKENS: ${ACCOUNT_DASHBOARD_TOKENS:-}
     depends_on:
       billing-db: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}

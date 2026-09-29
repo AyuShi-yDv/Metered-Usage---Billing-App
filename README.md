@@ -9,7 +9,7 @@ copy .env.example .env
 docker compose up --build
 ```
 
-Open `http://localhost:5173`. Startup migrations seed a Demo account and three plans; the generator creates a key through a private management listener and continuously sends events at `EVENTS_PER_SECOND`. Enter the `DASHBOARD_TOKEN` from `.env` into the dashboard access field. Key management is proxied through billing; the ingest management port is internal to Compose, and a newly created/rotated secret is displayed once. The demo dashboard token has finance access across demo accounts; production should replace this demo credential with account-scoped user sessions. The Postgres init script at `database/init/010-app-role.sql` creates separate non-superuser app roles; it runs only for empty data volumes.
+Open `http://localhost:5173`. Startup migrations seed a Demo account and three plans; the generator creates a key through a private management listener and continuously sends events at `EVENTS_PER_SECOND`. Use `DASHBOARD_TOKEN` for the finance-wide dashboard, or the account-specific value in `ACCOUNT_DASHBOARD_TOKENS` for a customer-scoped view. Key management is proxied through billing; the ingest management port is internal to Compose, and a newly created/rotated secret is displayed once. The Postgres init script at `database/init/010-app-role.sql` creates separate non-superuser app roles; it runs only for empty data volumes.
 
 ## Safety and consistency
 
