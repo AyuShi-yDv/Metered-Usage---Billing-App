@@ -79,6 +79,17 @@ services:
     build: ./frontend
     depends_on: [billing]
     ports: ["5173:8080"]
+  ops-tools:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile
+    environment:
+      INGEST_DATABASE_URL: postgresql://ingest_app:${INGEST_DB_PASSWORD:-ingest-local-password}@ingest-db:5432/ingest
+      BILLING_DATABASE_URL: postgresql://billing_app:${BILLING_DB_PASSWORD:-billing-local-password}@billing-db:5432/billing
+    depends_on:
+      ingest-db: {condition: service_healthy}
+      billing-db: {condition: service_healthy}
 volumes:
   ingest-data:
   billing-data:

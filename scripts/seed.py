@@ -23,11 +23,12 @@ async def main():
     try:
         await billing.execute("CREATE TEMP TABLE seed_billing_events (LIKE billing_events INCLUDING DEFAULTS)")
         await ingest.execute("CREATE TEMP TABLE seed_ingest_events (LIKE usage_events INCLUDING DEFAULTS)")
-        accounts=[uuid.uuid5(uuid.NAMESPACE_DNS,f"metered-demo-{i}") for i in range(1,51)]
+        demo_account=uuid.UUID("00000000-0000-0000-0000-000000000001")
+        accounts=[demo_account]+[uuid.uuid5(uuid.NAMESPACE_DNS,f"metered-demo-{i}") for i in range(1,50)]
         plans=[uuid.uuid5(uuid.NAMESPACE_DNS,f"metered-plan-{i}") for i in range(3)]
         await billing.executemany("INSERT INTO plans(id,name,included_calls,overage_cents_per_1000,monthly_base_fee_cents) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO NOTHING",[(plans[0],"Seed Starter",10000,250,1900),(plans[1],"Seed Growth",50000,180,7900),(plans[2],"Seed Scale",250000,120,29900)])
         await billing.executemany("INSERT INTO accounts(id,name) VALUES($1,$2) ON CONFLICT(id) DO NOTHING",[(a,f"Demo account {i+1:02d}") for i,a in enumerate(accounts)])
-        await billing.executemany("INSERT INTO account_plans(id,account_id,plan_id,effective_from) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING",[(uuid.uuid5(uuid.NAMESPACE_DNS,f"assignment-{a}"),a,plans[i%3],datetime(2020,1,1,tzinfo=timezone.utc)) for i,a in enumerate(accounts)])
+        await billing.executemany("INSERT INTO account_plans(id,account_id,plan_id,effective_from) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING",[(uuid.uuid5(uuid.NAMESPACE_DNS,f"assignment-{a}"),a,plans[i%3],datetime(2020,1,1,tzinfo=timezone.utc)) for i,a in enumerate(accounts) if a != demo_account])
         api_key_ids=[uuid.uuid5(uuid.NAMESPACE_DNS,f"seed-key-{a}") for a in accounts]
         api_key_by_account=dict(zip(accounts,api_key_ids))
         def seed_hash():

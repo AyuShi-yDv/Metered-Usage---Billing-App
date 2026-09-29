@@ -18,7 +18,7 @@ FROM buckets LEFT JOIN usage USING (bucket)
 ORDER BY buckets.bucket;
 ```
 
-`python scripts/performance.py` emits `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)` before and after index creation inside a transaction that rolls back, preserving the original indexes. The candidate indexes are `(account_id, occurred_at)` for equality-then-range filtering and `(account_id, occurred_at, endpoint) INCLUDE (duration_ms)` for endpoint latency coverage; equality comes first, then the range key, and endpoint is last because it is a grouping/coverage value rather than a leading filter.
+`docker compose --profile tools run --rm ops-tools performance.py` emits `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)` before and after index creation inside a transaction that rolls back, preserving the original indexes. The candidate indexes are `(account_id, occurred_at)` for equality-then-range filtering and `(account_id, occurred_at, endpoint) INCLUDE (duration_ms)` for endpoint latency coverage; equality comes first, then the range key, and endpoint is last because it is a grouping/coverage value rather than a leading filter.
 
 ## Measurement status
 
