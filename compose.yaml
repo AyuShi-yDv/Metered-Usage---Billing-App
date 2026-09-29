@@ -87,9 +87,13 @@ services:
     environment:
       INGEST_DATABASE_URL: postgresql://ingest_app:${INGEST_DB_PASSWORD:-ingest-local-password}@ingest-db:5432/ingest
       BILLING_DATABASE_URL: postgresql://billing_app:${BILLING_DB_PASSWORD:-billing-local-password}@billing-db:5432/billing
+      INGEST_URL: http://ingest:8000
+      INGEST_MANAGEMENT_URL: http://ingest:8002
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
     depends_on:
       ingest-db: {condition: service_healthy}
       billing-db: {condition: service_healthy}
+      ingest: {condition: service_started}
   ingest-tests:
     profiles: ["tests"]
     build:

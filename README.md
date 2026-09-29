@@ -19,7 +19,7 @@ Open `http://localhost:5173`. Startup migrations seed a Demo account and three p
 - Billing recomputes hour rollups under `FOR UPDATE SKIP LOCKED`; it never incrementally adds retryable counts. Transient consumer failures are retried with 1, 5, and 30 second broker delays before dead-lettering.
 - Currency is integer cents. Overage uses integer half-up rounding once per invoice.
 - Plan history is effective-dated with a PostgreSQL exclusion constraint. Mid-period invoices prorate each plan's allowance and base fee by its exact active duration; the what-if endpoint compares the previous 30 days with another plan.
-- The compose stack includes a small live demo dataset. To load the required 500,000-event benchmark dataset without publishing either database port, run `docker compose --profile tools run --rm ops-tools seed.py` after startup. Capture the reporting plan with `docker compose --profile tools run --rm ops-tools performance.py`; it leaves the database indexes unchanged.
+- The compose stack includes a small live demo dataset. To load the required 500,000-event benchmark dataset without publishing either database port, run `docker compose --profile tools run --rm ops-tools seed.py` after startup. Capture the reporting plan with `docker compose --profile tools run --rm ops-tools performance.py`; it leaves the database indexes unchanged. Measure ingest latency with `docker compose --profile tools run --rm ops-tools ingest_load.py` (defaults to 300 events and enforces p95 < 50 ms).
 
 ## Tests
 
