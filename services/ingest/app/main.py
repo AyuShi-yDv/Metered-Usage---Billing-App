@@ -1,31 +1,38 @@
-import asyncio, json
+import asyncio, json, random
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import uuid4, UUID
 import aio_pika
 from fastapi import FastAPI, Header, HTTPException, Response, status, Request
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from .db import Session
-from .schemas import UsageIn, KeyCreate, KeyCreated
-from .security import hash_secret, new_secret, verify_secret
+from .schemas import UsageIn
+from .security import verify_secret
 from .config import settings
 
 async def publish_outbox() -> None:
+    backoff = 1.0
     while True:
         try:
             connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+            backoff = 1.0
             async with connection:
                 channel = await connection.channel(publisher_confirms=True)
                 exchange = await channel.declare_exchange("usage", aio_pika.ExchangeType.FANOUT, durable=True)
                 while True:
-                    async with Session() as db, db.begin():
-                        rows = (await db.execute(text("SELECT id, payload FROM outbox_messages WHERE published_at IS NULL ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 100"))).mappings().all()
-                        for row in rows:
-                            await exchange.publish(aio_pika.Message(json.dumps(row["payload"], default=str).encode(), delivery_mode=aio_pika.DeliveryMode.PERSISTENT, message_id=str(row["id"])), "")
-                            await db.execute(text("UPDATE outbox_messages SET published_at=now(), attempts=attempts+1 WHERE id=:id"), {"id": row["id"]})
+                    async with Session() as db:
+                        rows = (await db.execute(text("SELECT id, payload FROM outbox_messages WHERE published_at IS NULL ORDER BY created_at LIMIT 100"))).mappings().all()
+                    for row in rows:
+                        await exchange.publish(aio_pika.Message(json.dumps(row["payload"], default=str).encode(), delivery_mode=aio_pika.DeliveryMode.PERSISTENT, message_id=str(row["id"])), "")
+                        async with Session() as db, db.begin():
+                            await db.execute(text("UPDATE outbox_messages SET published_at=now(), attempts=attempts+1 WHERE id=:id AND published_at IS NULL"), {"id": row["id"]})
                     await asyncio.sleep(.25)
+        except asyncio.CancelledError:
+            raise
         except Exception:
-            await asyncio.sleep(1)
+            await asyncio.sleep(backoff * random.uniform(.75, 1.25))
+            backoff = min(backoff * 2, 30.0)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -34,6 +41,16 @@ async def lifespan(_: FastAPI):
     task.cancel()
 
 app = FastAPI(title="ingest-service", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_credentials=False, allow_methods=["GET","POST"], allow_headers=["Content-Type","X-API-Key"])
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response=await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options","nosniff")
+    response.headers.setdefault("Referrer-Policy","no-referrer")
+    response.headers.setdefault("X-Frame-Options","DENY")
+    response.headers.setdefault("Content-Security-Policy","default-src 'none'; frame-ancestors 'none'")
+    return response
 
 @app.middleware("http")
 async def body_limit(request: Request, call_next):
@@ -48,14 +65,6 @@ async def body_limit(request: Request, call_next):
 @app.get("/healthz")
 async def healthz(): return {"ok": True}
 
-@app.post("/v1/api-keys", response_model=KeyCreated, status_code=201)
-async def create_key(body: KeyCreate, x_internal_token: str = Header(default="")):
-    if not __import__("hmac").compare_digest(x_internal_token, settings.internal_token): raise HTTPException(401, "unauthorized")
-    prefix, secret = new_secret(); key_id = uuid4()
-    async with Session() as db, db.begin():
-        await db.execute(text("INSERT INTO api_keys(id,account_id,prefix,secret_hash) VALUES(:id,:account,:prefix,:hash)"), {"id": key_id, "account": body.account_id, "prefix": prefix, "hash": hash_secret(secret)})
-    return KeyCreated(id=key_id, prefix=prefix, secret=secret)
-
 @app.post("/v1/usage", status_code=202)
 async def ingest(body: UsageIn, x_api_key: str = Header(min_length=20, max_length=256)):
     prefix = x_api_key[:10]
@@ -63,6 +72,11 @@ async def ingest(body: UsageIn, x_api_key: str = Header(min_length=20, max_lengt
         key = (await db.execute(text("SELECT id,account_id,secret_hash,revoked_at,overlap_expires_at FROM api_keys WHERE prefix=:prefix"), {"prefix": prefix})).mappings().first()
         if not key or not verify_secret(x_api_key, key["secret_hash"]): raise HTTPException(401, "invalid API key")
         if key["revoked_at"] and (not key["overlap_expires_at"] or key["overlap_expires_at"] < datetime.now(timezone.utc)): raise HTTPException(401, "revoked API key")
+        limit = (await db.execute(text("""INSERT INTO ingest_rate_limits(account_id,window_started_at,request_count) VALUES(:account,date_trunc('minute',now()),1)
+        ON CONFLICT(account_id) DO UPDATE SET window_started_at=CASE WHEN ingest_rate_limits.window_started_at < date_trunc('minute',now()) THEN date_trunc('minute',now()) ELSE ingest_rate_limits.window_started_at END,
+        request_count=CASE WHEN ingest_rate_limits.window_started_at < date_trunc('minute',now()) THEN 1 ELSE ingest_rate_limits.request_count+1 END RETURNING request_count"""), {"account":key["account_id"]})).scalar_one()
+        if limit > 600:
+            return Response(content="rate limit exceeded",status_code=429,headers={"Retry-After":"60"})
         result = await db.execute(text("""INSERT INTO usage_events(event_id,account_id,api_key_id,endpoint,occurred_at,duration_ms,status_code)
           VALUES(:event,:account,:key,:endpoint,:occurred,:duration,:status) ON CONFLICT(event_id) DO NOTHING"""), {"event": body.event_id, "account": key["account_id"], "key": key["id"], "endpoint": body.endpoint, "occurred": body.timestamp, "duration": body.duration_ms, "status": body.status_code})
         if result.rowcount:

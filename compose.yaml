@@ -3,26 +3,36 @@ services:
     image: postgres:16.4-alpine
     environment:
       POSTGRES_DB: ingest
-      POSTGRES_USER: ingest
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      APP_DB_USER: ingest_app
+      APP_DB_PASSWORD: ${INGEST_DB_PASSWORD:-ingest-local-password}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ingest -d ingest"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ingest"]
       interval: 5s
       timeout: 3s
       retries: 20
     volumes: [ingest-data:/var/lib/postgresql/data]
+    configs:
+      - source: postgres_app_role
+        target: /docker-entrypoint-initdb.d/010-app-role.sql
   billing-db:
     image: postgres:16.4-alpine
     environment:
       POSTGRES_DB: billing
-      POSTGRES_USER: billing
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      APP_DB_USER: billing_app
+      APP_DB_PASSWORD: ${BILLING_DB_PASSWORD:-billing-local-password}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U billing -d billing"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d billing"]
       interval: 5s
       timeout: 3s
       retries: 20
     volumes: [billing-data:/var/lib/postgresql/data]
+    configs:
+      - source: postgres_app_role
+        target: /docker-entrypoint-initdb.d/010-app-role.sql
   rabbitmq:
     image: rabbitmq:3.13.7-management-alpine
     environment:
@@ -36,7 +46,7 @@ services:
   ingest:
     build: ./services/ingest
     environment:
-      DATABASE_URL: postgresql+asyncpg://ingest:${POSTGRES_PASSWORD:-postgres}@ingest-db:5432/ingest
+      DATABASE_URL: postgresql+asyncpg://ingest_app:${INGEST_DB_PASSWORD:-ingest-local-password}@ingest-db:5432/ingest
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASSWORD:-app}@rabbitmq:5672/
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
     depends_on:
@@ -46,18 +56,22 @@ services:
   billing:
     build: ./services/billing
     environment:
-      DATABASE_URL: postgresql+asyncpg://billing:${POSTGRES_PASSWORD:-postgres}@billing-db:5432/billing
+      DATABASE_URL: postgresql+asyncpg://billing_app:${BILLING_DB_PASSWORD:-billing-local-password}@billing-db:5432/billing
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASSWORD:-app}@rabbitmq:5672/
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
+      INGEST_MANAGEMENT_URL: http://ingest:8002
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-demo-dashboard-token}
     depends_on:
       billing-db: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
+      ingest: {condition: service_started}
     ports: ["8001:8001"]
   generator:
     build: ./generator
     environment:
       INGEST_URL: http://ingest:8000
-      EVENTS_PER_SECOND: "4"
+      INGEST_MANAGEMENT_URL: http://ingest:8002
+      EVENTS_PER_SECOND: ${EVENTS_PER_SECOND:-4}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
     depends_on: [ingest]
   frontend:
@@ -67,3 +81,6 @@ services:
 volumes:
   ingest-data:
   billing-data:
+configs:
+  postgres_app_role:
+    file: ./database/init/010-app-role.sql

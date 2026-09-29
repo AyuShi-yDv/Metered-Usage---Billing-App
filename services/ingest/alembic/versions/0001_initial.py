@@ -7,7 +7,7 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
-    op.execute("""
+    statements = """
     CREATE TABLE api_keys (
       id uuid PRIMARY KEY, account_id uuid NOT NULL, prefix varchar(16) UNIQUE NOT NULL,
       secret_hash varchar(512) NOT NULL, revoked_at timestamptz, overlap_expires_at timestamptz,
@@ -26,6 +26,13 @@ def upgrade():
       attempts integer NOT NULL DEFAULT 0, last_error text
     );
     CREATE INDEX outbox_unpublished_idx ON outbox_messages(created_at) WHERE published_at IS NULL;
-    """)
+    CREATE TABLE ingest_rate_limits (
+      account_id uuid PRIMARY KEY, window_started_at timestamptz NOT NULL, request_count integer NOT NULL CHECK(request_count >= 0)
+    );
+    """
+    for statement in statements.split(";"):
+        if statement.strip(): op.execute(statement)
 
-def downgrade(): op.execute("DROP TABLE outbox_messages; DROP TABLE usage_events; DROP TABLE api_keys;")
+def downgrade():
+    for statement in ["DROP TABLE ingest_rate_limits", "DROP TABLE outbox_messages", "DROP TABLE usage_events", "DROP TABLE api_keys"]:
+        op.execute(statement)

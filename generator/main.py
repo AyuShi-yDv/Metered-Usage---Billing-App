@@ -5,19 +5,24 @@ from uuid import UUID, uuid4
 import httpx
 
 INGEST_URL = os.getenv("INGEST_URL", "http://localhost:8000")
+INGEST_MANAGEMENT_URL = os.getenv("INGEST_MANAGEMENT_URL", INGEST_URL)
 RATE = float(os.getenv("EVENTS_PER_SECOND", "4"))
+if RATE <= 0:
+    raise ValueError("EVENTS_PER_SECOND must be positive")
 TOKEN = os.getenv("INTERNAL_TOKEN", "change-me-in-production")
 ACCOUNT = UUID("00000000-0000-0000-0000-000000000001")
 
 async def get_key(client: httpx.AsyncClient) -> str:
-    response = await client.post(f"{INGEST_URL}/v1/api-keys", json={"account_id":str(ACCOUNT)}, headers={"X-Internal-Token":TOKEN})
+    response = await client.post(f"{INGEST_MANAGEMENT_URL}/v1/api-keys", json={"account_id":str(ACCOUNT)}, headers={"X-Internal-Token":TOKEN})
     response.raise_for_status(); return response.json()["secret"]
 
 async def main():
     async with httpx.AsyncClient(timeout=2) as client:
+        backoff=1.0
         while True:
             try: key = await get_key(client); break
-            except httpx.HTTPError: await asyncio.sleep(2)
+            except httpx.HTTPError:
+                await asyncio.sleep(backoff*random.uniform(.75,1.25)); backoff=min(backoff*2,30.0)
         previous = None
         while True:
             now = datetime.now(timezone.utc)
