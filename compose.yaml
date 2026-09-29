@@ -90,6 +90,31 @@ services:
     depends_on:
       ingest-db: {condition: service_healthy}
       billing-db: {condition: service_healthy}
+  ingest-tests:
+    profiles: ["tests"]
+    build:
+      context: .
+      dockerfile: scripts/test.Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ingest_app:${INGEST_DB_PASSWORD:-ingest-local-password}@ingest-db:5432/ingest
+      RABBITMQ_URL: amqp://unused
+      INTERNAL_TOKEN: test-only-token
+    depends_on:
+      ingest-db: {condition: service_healthy}
+    command: ["sh", "-c", "cd services/ingest && alembic upgrade head && pytest -q tests"]
+  billing-tests:
+    profiles: ["tests"]
+    build:
+      context: .
+      dockerfile: scripts/test.Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://billing_app:${BILLING_DB_PASSWORD:-billing-local-password}@billing-db:5432/billing
+      RABBITMQ_URL: amqp://unused
+      INTERNAL_TOKEN: test-only-token
+      DASHBOARD_TOKEN: test-finance-token
+    depends_on:
+      billing-db: {condition: service_healthy}
+    command: ["sh", "-c", "cd services/billing && alembic upgrade head && pytest -q tests"]
 volumes:
   ingest-data:
   billing-data:

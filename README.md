@@ -28,4 +28,4 @@ cd services/ingest && pytest
 cd ../billing && pytest
 ```
 
-Set `DATABASE_URL` to the migrated billing database and run `pytest -q` in `services/billing`; set it to the migrated ingest database for its idempotency test. Tests skip database integration cases when the variable is unset. To produce the 500k bulk dataset and benchmark evidence, export `INGEST_DATABASE_URL` and `BILLING_DATABASE_URL`, then run `python scripts/seed.py` and `python scripts/performance.py`.
+For the complete database-backed suites without publishing DB ports, run `docker compose --profile tests run --rm ingest-tests` and `docker compose --profile tests run --rm billing-tests`. These one-shot containers apply Alembic migrations before testing; integration checks skip only when `DATABASE_URL` is unset. To produce the 500k bulk dataset and benchmark evidence, run the `ops-tools` commands above.
