@@ -13,7 +13,6 @@ services:
       timeout: 3s
       retries: 20
     volumes: [ingest-data:/var/lib/postgresql/data]
-    command: ["postgres", "-c", "synchronous_commit=off"]
     configs:
       - source: postgres_app_role
         target: /docker-entrypoint-initdb.d/010-app-role.sql
@@ -50,9 +49,17 @@ services:
       DATABASE_URL: postgresql+asyncpg://ingest_app:${INGEST_DB_PASSWORD:-ingest-local-password}@ingest-db:5432/ingest
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASSWORD:-app}@rabbitmq:5672/
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-600}
+      WEB_CONCURRENCY: ${INGEST_WORKERS:-1}
     depends_on:
       ingest-db: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
     ports: ["8000:8000"]
   billing:
     build: ./services/billing
@@ -66,8 +73,28 @@ services:
     depends_on:
       billing-db: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
-      ingest: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
     ports: ["8001:8001"]
+  # One-shot: loads ~500k realistic events into both databases after migrations ran (idempotent; skip
+  # with SEED_EVENTS=0). The stack is usable immediately; the seed finishes in a minute or two.
+  seed:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile
+    command: ["seed.py"]
+    restart: "no"
+    environment:
+      INGEST_DATABASE_URL: postgresql://ingest_app:${INGEST_DB_PASSWORD:-ingest-local-password}@ingest-db:5432/ingest
+      BILLING_DATABASE_URL: postgresql://billing_app:${BILLING_DB_PASSWORD:-billing-local-password}@billing-db:5432/billing
+      SEED_EVENTS: ${SEED_EVENTS:-500000}
+    depends_on:
+      ingest: {condition: service_healthy}
+      billing: {condition: service_healthy}
   generator:
     build: ./generator
     environment:
@@ -75,10 +102,15 @@ services:
       INGEST_MANAGEMENT_URL: http://ingest:8002
       EVENTS_PER_SECOND: ${EVENTS_PER_SECOND:-4}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
-    depends_on: [ingest]
+    depends_on:
+      ingest: {condition: service_healthy}
   frontend:
-    build: ./frontend
-    depends_on: [billing]
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8001}
+    depends_on:
+      billing: {condition: service_healthy}
     ports: ["5173:8080"]
   ops-tools:
     profiles: ["tools"]
@@ -92,9 +124,8 @@ services:
       INGEST_MANAGEMENT_URL: http://ingest:8002
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
     depends_on:
-      ingest-db: {condition: service_healthy}
-      billing-db: {condition: service_healthy}
-      ingest: {condition: service_started}
+      ingest: {condition: service_healthy}
+      billing: {condition: service_healthy}
   ingest-tests:
     profiles: ["tests"]
     build:

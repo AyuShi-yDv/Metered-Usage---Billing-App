@@ -27,17 +27,19 @@ async def main():
     try:
         print("BEFORE INDEX")
         await conn.execute("DROP INDEX IF EXISTS billing_events_account_occurred_idx")
-        await conn.execute("DROP INDEX IF EXISTS billing_events_account_time_endpoint_idx")
+        await conn.execute("DROP INDEX IF EXISTS billing_events_account_time_endpoint_idx")  # dropped by migration 0002 already
+        await conn.execute("ANALYZE billing_events")
         end=datetime.now(timezone.utc)
         start=end-timedelta(days=30)
-        print("\n".join(row[0] for row in await conn.fetch(QUERY,UUID(ACCOUNT),start,end)))
-        # Equality key first, range key second; endpoint follows the range for
-        # p95/report coverage. duration_ms is included, not a search key.
+        for label in ("run 1 (cold)","run 2 (warm)"):
+            print(f"-- {label}"); print("\n".join(row[0] for row in await conn.fetch(QUERY,UUID(ACCOUNT),start,end)))
+        # Equality column (account_id) first, range column (occurred_at) second: the btree can then
+        # seek to one account and read a contiguous time slice.
         await conn.execute("CREATE INDEX billing_events_account_occurred_idx ON billing_events(account_id,occurred_at)")
-        await conn.execute("CREATE INDEX billing_events_account_time_endpoint_idx ON billing_events(account_id,occurred_at,endpoint) INCLUDE(duration_ms)")
         await conn.execute("ANALYZE billing_events")
         print("AFTER INDEX")
-        print("\n".join(row[0] for row in await conn.fetch(QUERY,UUID(ACCOUNT),start,end)))
+        for label in ("run 1","run 2 (warm)"):
+            print(f"-- {label}"); print("\n".join(row[0] for row in await conn.fetch(QUERY,UUID(ACCOUNT),start,end)))
     finally:
         await transaction.rollback()  # restore the database's original indexes
         await conn.close()
