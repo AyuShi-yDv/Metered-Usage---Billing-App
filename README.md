@@ -5,7 +5,7 @@ Two isolated FastAPI services use a transactional outbox and RabbitMQ to move us
 ## Run
 
 ```sh
-copy .env.example .env
+cp .env.example .env   # optional: every value has a working local default
 docker compose up --build
 ```
 
