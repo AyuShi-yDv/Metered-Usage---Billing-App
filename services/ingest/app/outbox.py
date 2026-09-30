@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Transactional-outbox publisher.
 
 Rows are claimed with FOR UPDATE SKIP LOCKED, so any number of publisher
@@ -12,6 +10,8 @@ bare fanout exchange and no bound queue, RabbitMQ drops messages, which would
 lose events published before billing first starts; declaring the durable queue
 on the producer side closes that window.
 """
+from __future__ import annotations
+
 import asyncio
 import json
 import random
