@@ -41,7 +41,7 @@ SELECT calls,
        round(base_amount)::integer AS base_fee_cents,
        (round(base_amount + overage_amount) - round(base_amount))::integer AS overage_cents,
        round(base_amount + overage_amount)::integer AS total_cents,
-       overage_calls, plan_segments
+       COALESCE(ceil(overage_calls), 0)::bigint AS overage_calls, plan_segments
 FROM amounts
 """)
 

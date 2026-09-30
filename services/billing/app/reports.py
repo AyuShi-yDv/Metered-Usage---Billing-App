@@ -36,7 +36,7 @@ WITH plan AS (
 SELECT calls, included_calls, GREATEST(calls-included_calls,0)::bigint AS overage_calls,
        projected_remaining_calls,
        GREATEST(calls+projected_remaining_calls-included_calls,0)::bigint AS projected_overage_calls,
-       ((GREATEST(calls+projected_remaining_calls-included_calls,0)::numeric * overage_cents_per_1000 + 500) / 1000)::bigint AS projected_overage_cents,
+       round(GREATEST(calls+projected_remaining_calls-included_calls,0)::numeric * overage_cents_per_1000 / 1000)::bigint AS projected_overage_cents,
        overage_cents_per_1000
 FROM projection
 """
@@ -61,8 +61,8 @@ WITH bounds AS (
   GROUP BY r.account_id
 ), costed AS (
   SELECT a.id, a.name,
-         ((GREATEST(COALESCE(c.calls,0)-p.included_calls,0)::numeric * p.overage_cents_per_1000 + 500) / 1000)::bigint AS overage_cents,
-         ((GREATEST(COALESCE(pr.calls,0)-p.included_calls,0)::numeric * p.overage_cents_per_1000 + 500) / 1000)::bigint AS previous_overage_cents
+         round(GREATEST(COALESCE(c.calls,0)-p.included_calls,0)::numeric * p.overage_cents_per_1000 / 1000)::bigint AS overage_cents,
+         round(GREATEST(COALESCE(pr.calls,0)-p.included_calls,0)::numeric * p.overage_cents_per_1000 / 1000)::bigint AS previous_overage_cents
   FROM accounts a
   LEFT JOIN current_month c ON c.account_id=a.id
   LEFT JOIN previous_month pr ON pr.account_id=a.id
@@ -74,5 +74,5 @@ WITH bounds AS (
   FROM costed
 )
 SELECT *, overage_cents-previous_overage_cents AS month_over_month_change_cents
-FROM ranked WHERE rank<=10 ORDER BY rank,id
+FROM ranked WHERE rank<=10 AND overage_cents>0 ORDER BY rank,id
 """
