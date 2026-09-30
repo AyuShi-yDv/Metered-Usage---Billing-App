@@ -66,7 +66,7 @@ async def account_detail(account_id: UUID, x_dashboard_token: str = Header(defau
     require_account(account_id, x_dashboard_token)
     sql = text("""
 WITH plan AS (
-  SELECT p.name, p.included_calls, p.overage_cents_per_1000, p.monthly_base_fee_cents
+  SELECT p.id, p.name, p.included_calls, p.overage_cents_per_1000, p.monthly_base_fee_cents
   FROM account_plans ap JOIN plans p ON p.id = ap.plan_id
   WHERE ap.account_id = :account AND ap.effective_from <= now() AND (ap.effective_to IS NULL OR ap.effective_to > now())
   ORDER BY ap.effective_from DESC LIMIT 1
@@ -78,7 +78,7 @@ WITH plan AS (
   FROM (SELECT endpoint, percentile_cont(.95) WITHIN GROUP (ORDER BY duration_ms) AS p95, count(*) AS n
         FROM billing_events WHERE account_id = :account AND occurred_at >= date_trunc('month', now()) GROUP BY endpoint) x
 )
-SELECT a.id, a.name AS account_name, plan.name AS plan_name, plan.included_calls, plan.overage_cents_per_1000,
+SELECT a.id, a.name AS account_name, plan.id AS plan_id, plan.name AS plan_name, plan.included_calls, plan.overage_cents_per_1000,
        plan.monthly_base_fee_cents, usage.calls,
        round(GREATEST(usage.calls + ((usage.calls::numeric / GREATEST(EXTRACT(EPOCH FROM now() - date_trunc('month', now())), 1))
           * EXTRACT(EPOCH FROM (date_trunc('month', now()) + interval '1 month' - now()))) - plan.included_calls, 0)

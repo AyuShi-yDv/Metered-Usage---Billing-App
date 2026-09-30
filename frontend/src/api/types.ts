@@ -29,6 +29,7 @@ export interface EndpointLatency { endpoint: string; p95_duration_ms: number; ca
 export interface AccountDetailData {
   id: string;
   account_name: string;
+  plan_id: string;
   plan_name: string;
   included_calls: number;
   overage_cents_per_1000: number;
