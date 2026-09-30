@@ -14,7 +14,7 @@ app = FastAPI(title="ingest-private-key-management")
 
 
 def check_internal(token: str) -> None:
-    if not hmac.compare_digest(token, settings.internal_token):
+    if not hmac.compare_digest(token.encode(), settings.internal_token.encode()):
         raise HTTPException(401, "unauthorized")
 
 
