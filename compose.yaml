@@ -10,7 +10,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d ingest"]
       interval: 5s
-      timeout: 10s
+      timeout: 5s
       retries: 20
     volumes: [ingest-data:/var/lib/postgresql/data]
     configs:
@@ -28,7 +28,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d billing"]
       interval: 5s
-      timeout: 3s
+      timeout: 5s
       retries: 20
     volumes: [billing-data:/var/lib/postgresql/data]
     configs:
@@ -90,7 +90,7 @@ services:
     ports: ["8001:8001"]
 
   # One-shot: loads ~500k realistic events into both databases after migrations ran (idempotent; skip
-  # with SEED_EVENTS=0). The stack is usable immediately; the seed finishes in a minute or two.
+  # with SEED_EVENTS=0). It finishes in a minute or two; the ready-banner below waits for it.
   seed:
     build:
       context: .
@@ -123,6 +123,35 @@ services:
     depends_on:
       billing: {condition: service_healthy}
     ports: ["5173:8080"]
+
+  # One-shot: waits until every service answers and the seed has finished, then prints clickable links.
+  # Missed it? Run:  docker compose logs ready-banner
+  ready-banner:
+    image: alpine:3.20
+    restart: "no"
+    depends_on:
+      ingest: {condition: service_healthy}
+      billing: {condition: service_healthy}
+      frontend: {condition: service_started}
+      seed: {condition: service_completed_successfully}
+    command:
+      - sh
+      - -c
+      - |
+        for url in http://ingest:8000/docs http://billing:8001/docs http://frontend:8080; do
+          until wget -q -O /dev/null "$$url"; do sleep 2; done
+        done
+        echo ""
+        echo "========================================================"
+        echo "  ALL SERVICES ARE READY. Click a link to open it:"
+        echo ""
+        echo "  App (frontend):      http://localhost:5173"
+        echo "  Ingest API docs:     http://localhost:8000/docs"
+        echo "  Billing API docs:    http://localhost:8001/docs"
+        echo "  RabbitMQ dashboard:  http://localhost:15672  (user: app / password: app)"
+        echo ""
+        echo "  Missed this box? Run: docker compose logs ready-banner"
+        echo "========================================================"
 
   ops-tools:
     profiles: ["tools"]
