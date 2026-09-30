@@ -32,49 +32,57 @@ Built with **React + TypeScript + FastAPI + PostgreSQL + RabbitMQ + Docker**.
 ## 🏗️ Architecture
 
 
-                         ┌──────────────────────┐
-                         │    React Frontend    │
-                         │  TypeScript + Vite   │
-                         │      :5173           │
-                         └──────────┬───────────┘
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │   Billing Service    │
-                         │     FastAPI :8001    │
-                         └──────────┬───────────┘
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │    Billing DB        │
-                         │    PostgreSQL 16     │
-                         └──────────────────────┘
+                            ┌─────────────────────────┐
+                           │     React Frontend      │
+                           │   TypeScript + Vite     │
+                           │        :5173            │
+                           └────────────┬────────────┘
+                                        │
+                              HTTP / REST APIs
+                                        │
+                         ┌──────────────┴──────────────┐
+                         │                             │
+                         ▼                             ▼
+              ┌───────────────────┐       ┌───────────────────┐
+              │   Ingest Service  │       │  Billing Service  │
+              │    FastAPI :8000  │       │    FastAPI :8001  │
+              │                   │       │                   │
+              │ API Key Auth      │       │ Plans             │
+              │ Validation        │       │ Rollups           │
+              │ Idempotency       │       │ Rating            │
+              │ Rate Limiting     │       │ Invoices          │
+              └─────────┬─────────┘       │ Reports           │
+                        │                 └─────────┬─────────┘
+                        │                           │
+                        ▼                           ▼
+              ┌───────────────────┐       ┌───────────────────┐
+              │    Ingest DB      │       │    Billing DB     │
+              │   PostgreSQL 16   │       │   PostgreSQL 16   │
+              └─────────┬─────────┘       └───────────────────┘
+                        │
+                        │ Transactional Outbox
+                        ▼
+              ┌───────────────────┐
+              │     RabbitMQ      │
+              │  Async Message    │
+              │      Bus          │
+              └─────────┬─────────┘
+                        │
+                        │ usage.accepted
+                        ▼
+              ┌───────────────────┐
+              │  Billing Service  │
+              │  Event Consumer   │
+              └───────────────────┘
 
-
-┌──────────────────────┐
-│      API Client      │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│    Ingest Service    │
-│     FastAPI :8000    │
-└──────────┬───────────┘
-           │
-           ├──────────────► Ingest DB
-           │
-           ▼
-┌──────────────────────┐
-│       RabbitMQ       │
-│   Async Message Bus  │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│    Billing Service   │
-│   Event Processing   │
-└──────────────────────┘
-```
+              ┌───────────────────┐
+              │  Usage Generator  │
+              │ duplicates / late │
+              │ / out-of-order    │
+              └─────────┬─────────┘
+                        │
+                        ▼
+                  Ingest Service
 
 The ingest and billing services are separate processes with separate PostgreSQL databases.
 
@@ -124,7 +132,7 @@ The ingest and billing services are separate processes with separate PostgreSQL 
 
 ```text
 .
-├── compose.yml
+├── compose.yaml
 ├── README.md
 ├── PERFORMANCE.md
 ├── DECISIONS.md

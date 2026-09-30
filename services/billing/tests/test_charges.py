@@ -8,7 +8,7 @@ def test_invoice_proration_prices_plan_segments_before_rounding():
     assert "segment_seconds / period_seconds" in sql
     assert "round(base_amount + overage_amount)" in sql
     assert "round(base_amount + overage_amount) - round(base_amount)" in sql
-    assert "status_code between 200 and 499" in sql
+    assert "status_code between 200 and 299 or" in sql and "status_code between 400 and 499" in sql
 
 
 def test_what_if_is_one_parameterized_last_30_day_query():

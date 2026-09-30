@@ -10,12 +10,13 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d ingest"]
       interval: 5s
-      timeout: 3s
+      timeout: 10s
       retries: 20
     volumes: [ingest-data:/var/lib/postgresql/data]
     configs:
       - source: postgres_app_role
         target: /docker-entrypoint-initdb.d/010-app-role.sql
+
   billing-db:
     image: postgres:16.4-alpine
     environment:
@@ -33,6 +34,7 @@ services:
     configs:
       - source: postgres_app_role
         target: /docker-entrypoint-initdb.d/010-app-role.sql
+
   rabbitmq:
     image: rabbitmq:3.13.7-management-alpine
     environment:
@@ -43,9 +45,11 @@ services:
       - "5672:5672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 180s
+
   ingest:
     build: ./services/ingest
     environment:
@@ -64,6 +68,7 @@ services:
       retries: 30
       start_period: 15s
     ports: ["8000:8000"]
+
   billing:
     build: ./services/billing
     environment:
@@ -83,6 +88,7 @@ services:
       retries: 30
       start_period: 15s
     ports: ["8001:8001"]
+
   # One-shot: loads ~500k realistic events into both databases after migrations ran (idempotent; skip
   # with SEED_EVENTS=0). The stack is usable immediately; the seed finishes in a minute or two.
   seed:
@@ -98,6 +104,7 @@ services:
     depends_on:
       ingest: {condition: service_healthy}
       billing: {condition: service_healthy}
+
   generator:
     build: ./generator
     environment:
@@ -107,6 +114,7 @@ services:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me-in-production}
     depends_on:
       ingest: {condition: service_healthy}
+
   frontend:
     build:
       context: ./frontend
@@ -115,6 +123,7 @@ services:
     depends_on:
       billing: {condition: service_healthy}
     ports: ["5173:8080"]
+
   ops-tools:
     profiles: ["tools"]
     build:
@@ -129,6 +138,7 @@ services:
     depends_on:
       ingest: {condition: service_healthy}
       billing: {condition: service_healthy}
+
   ingest-tests:
     profiles: ["tests"]
     build:
@@ -141,6 +151,7 @@ services:
     depends_on:
       ingest-db: {condition: service_healthy}
     command: ["sh", "-c", "cd services/ingest && alembic upgrade head && pytest -q tests"]
+
   billing-tests:
     profiles: ["tests"]
     build:
@@ -154,9 +165,11 @@ services:
     depends_on:
       billing-db: {condition: service_healthy}
     command: ["sh", "-c", "cd services/billing && alembic upgrade head && pytest -q tests"]
+
 volumes:
   ingest-data:
   billing-data:
+
 configs:
   postgres_app_role:
     file: ./database/init/010-app-role.sql
