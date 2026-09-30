@@ -33,7 +33,7 @@ async def create_key(body: KeyCreate, x_internal_token: str = Header(default="")
 async def list_keys(account_id: UUID, x_internal_token: str = Header(default="")):
     check_internal(x_internal_token)
     async with Session() as db:
-        rows = (await db.execute(text("SELECT id,prefix,created_at,revoked_at FROM api_keys WHERE account_id=:account ORDER BY created_at DESC"),
+        rows = (await db.execute(text("SELECT id,prefix,created_at,revoked_at,overlap_expires_at FROM api_keys WHERE account_id=:account ORDER BY created_at DESC"),
                                  {"account": account_id})).mappings().all()
     return {"data": rows}
 

@@ -45,3 +45,4 @@ class KeyInfo(BaseModel):
     prefix: str
     created_at: datetime
     revoked_at: datetime | None
+    overlap_expires_at: datetime | None = None
