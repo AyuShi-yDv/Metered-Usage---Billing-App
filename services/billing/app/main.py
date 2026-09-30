@@ -2,7 +2,7 @@ import asyncio, json, random
 import httpx
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 import aio_pika
 from fastapi import FastAPI, HTTPException, Query, Header, Response
@@ -243,7 +243,7 @@ async def time_series(account_id: UUID, start: datetime, end: datetime, granular
     authorize(account_id,x_dashboard_token)
     require_utc_offsets(start,end)
     if end <= start: raise HTTPException(422, "end must be after start")
-    interval = "1 hour" if granularity == "hour" else "1 day"
+    interval = timedelta(hours=1) if granularity == "hour" else timedelta(days=1)
     async with Session() as db:
         rows = (await db.execute(text(TIME_SERIES_SQL), {"account_id":account_id,"start":start,"end":end,"bucket":granularity,"interval":interval})).mappings().all()
     return {"data": rows}
@@ -266,7 +266,7 @@ async def usage_report(report: str = Query(..., pattern="^(time_series|p95|mtd|t
     if report == "p95":
         sql, params = P95_SQL,{"account_id":account_id,"start":start,"end":end}
     else:
-        sql, params = TIME_SERIES_SQL,{"account_id":account_id,"start":start,"end":end,"bucket":granularity,"interval":"1 hour" if granularity=="hour" else "1 day"}
+        sql, params = TIME_SERIES_SQL,{"account_id":account_id,"start":start,"end":end,"bucket":granularity,"interval":timedelta(hours=1) if granularity=="hour" else timedelta(days=1)}
     async with Session() as db: rows=(await db.execute(text(sql),params)).mappings().all()
     return {"data":rows}
 

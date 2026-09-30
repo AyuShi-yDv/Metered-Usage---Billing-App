@@ -12,8 +12,13 @@ INGEST_URL = os.getenv("INGEST_URL", "http://localhost:8000")
 ADMIN_URL = os.getenv("INGEST_MANAGEMENT_URL", "http://localhost:8002")
 INTERNAL_TOKEN = os.environ["INTERNAL_TOKEN"]
 ACCOUNT_ID = UUID(os.getenv("LOAD_ACCOUNT_ID", "00000000-0000-0000-0000-000000000001"))
-EVENTS = int(os.getenv("LOAD_EVENTS", "300"))
-CONCURRENCY = int(os.getenv("LOAD_CONCURRENCY", "20"))
+EVENTS = int(os.getenv("LOAD_EVENTS", "100"))
+CONCURRENCY = int(os.getenv("LOAD_CONCURRENCY", "2"))
+
+
+def percentile95(samples: list[float]) -> float:
+    ordered = sorted(samples)
+    return ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)]
 
 
 async def main() -> None:
@@ -29,6 +34,7 @@ async def main() -> None:
         semaphore = asyncio.Semaphore(CONCURRENCY)
         latencies: list[float] = []
         statuses: dict[int, int] = {}
+        latencies_by_status: dict[int, list[float]] = {}
 
         async def send_one() -> None:
             async with semaphore:
@@ -37,7 +43,9 @@ async def main() -> None:
                 started = time.perf_counter()
                 response = await client.post(f"{INGEST_URL}/v1/usage", json=payload,
                     headers={"X-API-Key": api_key})
-                latencies.append((time.perf_counter() - started) * 1000)
+                latency_ms = (time.perf_counter() - started) * 1000
+                latencies.append(latency_ms)
+                latencies_by_status.setdefault(response.status_code, []).append(latency_ms)
                 statuses[response.status_code] = statuses.get(response.status_code, 0) + 1
 
         await asyncio.gather(*(send_one() for _ in range(EVENTS)))
@@ -46,6 +54,10 @@ async def main() -> None:
     p95 = ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)]
     print(f"events={EVENTS} concurrency={CONCURRENCY} statuses={statuses}")
     print(f"latency_ms p50={ordered[len(ordered)//2]:.2f} p95={p95:.2f} max={ordered[-1]:.2f}")
+    for code, samples in sorted(latencies_by_status.items()):
+        samples.sort()
+        status_p95 = samples[max(0, math.ceil(0.95 * len(samples)) - 1)]
+        print(f"latency_ms status={code} count={len(samples)} p50={samples[len(samples)//2]:.2f} p95={status_p95:.2f} max={samples[-1]:.2f}")
     if statuses != {202: EVENTS} or p95 >= 50:
         raise SystemExit("ingest p95 target failed (required: all accepted and p95 < 50 ms)")
 

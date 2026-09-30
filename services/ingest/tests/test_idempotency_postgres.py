@@ -20,7 +20,7 @@ async def test_five_retries_create_one_event_and_outbox_row():
                     await db.execute(text("INSERT INTO outbox_messages(id,topic,payload) VALUES(:id,'usage.accepted','{}'::jsonb)"),{"id":outbox_id})
         async with Sessions() as db:
             assert await db.scalar(text("SELECT count(*) FROM usage_events WHERE event_id=:id"),{"id":event})==1
-            assert await db.scalar(text("SELECT count(*) FROM outbox_messages WHERE topic='usage.accepted'"))==1
+            assert await db.scalar(text("SELECT count(*) FROM outbox_messages WHERE id=:id AND topic='usage.accepted'"),{"id":outbox_id})==1
     finally:
         async with Sessions() as db,db.begin():
             await db.execute(text("DELETE FROM outbox_messages WHERE id=:id"),{"id":outbox_id})

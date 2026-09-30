@@ -37,6 +37,10 @@ async def test_two_workers_do_not_double_count_and_5xx_is_excluded():
             await db.execute(text("DELETE FROM billing_events WHERE account_id=:account"),{"account":account})
             await db.execute(text("DELETE FROM accounts WHERE id=:account"),{"account":account})
         await engine.dispose()
+        # The rollup worker uses app.db's module-level engine. Dispose it so
+        # asyncpg connections are not reused by pytest's next event loop.
+        from app.db import engine as worker_engine
+        await worker_engine.dispose()
 
 @pytest.mark.asyncio
 async def test_event_after_final_invoice_becomes_next_period_adjustment():
@@ -83,8 +87,8 @@ async def test_mid_month_plan_change_prorates_allowance_and_base_fee():
             await db.execute(text("INSERT INTO accounts(id,name) VALUES(:id,'proration-test')"),{"id":account})
             await db.execute(text("INSERT INTO plans(id,name,included_calls,overage_cents_per_1000,monthly_base_fee_cents) VALUES(:a,:an,200,500,1000),(:b,:bn,300,1000,2000)"),{"a":plan_a,"an":f"prorate-a-{plan_a}","b":plan_b,"bn":f"prorate-b-{plan_b}"})
             await db.execute(text("INSERT INTO account_plans(id,account_id,plan_id,effective_from,effective_to) VALUES(:id,:account,:a,:start,:mid),(:id2,:account,:b,:mid,NULL)"),{"id":uuid.uuid4(),"id2":uuid.uuid4(),"account":account,"a":plan_a,"b":plan_b,"start":start,"mid":midpoint})
-            await db.execute(text("INSERT INTO billing_events(event_id,account_id,endpoint,occurred_at,duration_ms,status_code) SELECT gen_random_uuid(),:account,'/proration',:start+n*interval '1 second',1,200 FROM generate_series(1,150) n"),{"account":account,"start":start})
-            await db.execute(text("INSERT INTO billing_events(event_id,account_id,endpoint,occurred_at,duration_ms,status_code) SELECT gen_random_uuid(),:account,'/proration',:mid+n*interval '1 second',1,200 FROM generate_series(1,300) n"),{"account":account,"mid":midpoint})
+            await db.execute(text("INSERT INTO billing_events(event_id,account_id,endpoint,occurred_at,duration_ms,status_code) SELECT gen_random_uuid(),:account,'/proration',CAST(:start AS timestamptz)+gs.n*interval '1 second',1,200 FROM generate_series(1,150) AS gs(n)"),{"account":account,"start":start})
+            await db.execute(text("INSERT INTO billing_events(event_id,account_id,endpoint,occurred_at,duration_ms,status_code) SELECT gen_random_uuid(),:account,'/proration',CAST(:mid AS timestamptz)+gs.n*interval '1 second',1,200 FROM generate_series(1,300) AS gs(n)"),{"account":account,"mid":midpoint})
         async with Sessions() as db:
             charge=(await db.execute(PERIOD_CHARGES_SQL,{"account":account,"start":start,"end":end})).mappings().one()
             assert charge["calls"]==450
