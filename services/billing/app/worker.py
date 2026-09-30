@@ -13,7 +13,7 @@ DELETE_ROLLUP_SQL = text("DELETE FROM hourly_usage_rollups WHERE account_id=:acc
 INSERT_ROLLUP_SQL = text("""
 INSERT INTO hourly_usage_rollups(account_id, hour_start, endpoint, billable_calls, total_calls)
 SELECT account_id, date_trunc('hour', occurred_at), endpoint,
-       count(*) FILTER (WHERE status_code BETWEEN 200 AND 499), count(*)
+       count(*) FILTER (WHERE (status_code BETWEEN 200 AND 299 OR status_code BETWEEN 400 AND 499)), count(*)
 FROM billing_events
 WHERE account_id=:account AND occurred_at >= :hour AND occurred_at < :end
 GROUP BY account_id, date_trunc('hour', occurred_at), endpoint

@@ -12,7 +12,7 @@ WITH buckets AS (
     date_trunc('hour',$3::timestamptz-interval '1 microsecond'),interval '1 hour') AS bucket
 ), usage AS (
   SELECT date_trunc('hour',occurred_at) AS bucket,
-    count(*) FILTER(WHERE status_code BETWEEN 200 AND 499) AS calls
+    count(*) FILTER(WHERE (status_code BETWEEN 200 AND 299 OR status_code BETWEEN 400 AND 499)) AS calls
   FROM billing_events
   WHERE account_id=$1::uuid AND occurred_at >= $2 AND occurred_at < $3
   GROUP BY 1

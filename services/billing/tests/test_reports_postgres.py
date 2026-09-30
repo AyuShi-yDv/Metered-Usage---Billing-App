@@ -27,6 +27,12 @@ async def test_hourly_series_zero_fills_gaps_and_excludes_5xx(sessions, make_ten
     assert [b for b, _ in result] == [h + i * HOUR for i in range(5)]
 
 
+async def test_series_does_not_count_redirects_or_informational_responses(sessions, make_tenant):
+    t = await make_tenant(); h = hour()
+    await add_events(sessions, t.account, [(h, "/a", 1, code) for code in (100, 200, 301, 304, 404, 500)])
+    assert [c for _, c in await series(sessions, t.account, h, h + HOUR)] == [2]   # only 200 and 404
+
+
 async def test_series_with_no_events_at_all_is_all_zeros(sessions, make_tenant):
     t = await make_tenant(); h = hour()
     assert [c for _, c in await series(sessions, t.account, h, h + 4 * HOUR)] == [0, 0, 0, 0]

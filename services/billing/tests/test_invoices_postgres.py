@@ -25,6 +25,18 @@ async def test_invoice_is_base_fee_plus_overage_rounded_once(sessions, make_tena
     assert (charge["calls"], charge["base_fee_cents"], charge["overage_cents"], charge["total_cents"]) == (1500, 1000, 250, 1250)
 
 
+async def test_redirects_and_server_errors_are_not_invoiced(sessions, make_tenant):
+    t = await make_tenant(included=1000, per_1000=500, base=1000)
+    jan = datetime(2024, 1, 1, tzinfo=UTC)
+    await add_events(sessions, t.account,
+                     [(jan + timedelta(minutes=i), "/a", 1, 200) for i in range(1000)]
+                     + [(jan, "/a", 1, 302)] * 400 + [(jan, "/a", 1, 500)] * 400 + [(jan, "/a", 1, 404)] * 500)
+    async with sessions() as db:
+        charge = (await db.execute(PERIOD_CHARGES_SQL, {"account": t.account, "start": jan, "end": datetime(2024, 2, 1, tzinfo=UTC)})).mappings().one()
+    # 1000 x 200 + 500 x 404 = 1500 billable; 500 over the allowance at 500c/1000 = 250c
+    assert (charge["calls"], charge["overage_cents"], charge["total_cents"]) == (1500, 250, 1250)
+
+
 async def test_finalize_twice_concurrently_creates_one_invoice_whose_lines_sum_to_the_total(sessions, make_tenant):
     t = await make_tenant(included=1000, per_1000=500, base=1000)
     jan = datetime(2024, 1, 1, tzinfo=UTC)

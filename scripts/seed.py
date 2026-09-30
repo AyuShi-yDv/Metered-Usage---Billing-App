@@ -78,7 +78,7 @@ async def main() -> None:
                              "SELECT event_id,account_id,api_key_id,endpoint,occurred_at,duration_ms,status_code FROM seed_ingest ON CONFLICT(event_id) DO NOTHING")
         await billing.execute("""
             INSERT INTO hourly_usage_rollups(account_id,hour_start,endpoint,billable_calls,total_calls)
-            SELECT account_id, date_trunc('hour',occurred_at), endpoint, count(*) FILTER (WHERE status_code BETWEEN 200 AND 499), count(*)
+            SELECT account_id, date_trunc('hour',occurred_at), endpoint, count(*) FILTER (WHERE (status_code BETWEEN 200 AND 299 OR status_code BETWEEN 400 AND 499)), count(*)
             FROM billing_events GROUP BY 1,2,3
             ON CONFLICT(account_id,hour_start,endpoint) DO UPDATE SET billable_calls=excluded.billable_calls,total_calls=excluded.total_calls""")
         await billing.execute("ANALYZE billing_events")

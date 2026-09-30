@@ -20,7 +20,7 @@ WITH period AS (
     AND COALESCE(ap.effective_to, period.period_end) > period.period_start
 ), usage AS (
   SELECT segments.*,
-         (SELECT count(*) FILTER (WHERE e.status_code BETWEEN 200 AND 499)
+         (SELECT count(*) FILTER (WHERE (e.status_code BETWEEN 200 AND 299 OR e.status_code BETWEEN 400 AND 499))
           FROM billing_events e
           WHERE e.account_id = :account
             AND e.occurred_at >= segments.segment_start
@@ -51,7 +51,7 @@ WITH bounds AS (
   SELECT now() - interval '30 days' AS period_start, now() AS period_end,
          EXTRACT(EPOCH FROM interval '30 days') AS period_seconds
 ), usage AS (
-  SELECT count(*) FILTER (WHERE status_code BETWEEN 200 AND 499)::bigint AS calls
+  SELECT count(*) FILTER (WHERE (status_code BETWEEN 200 AND 299 OR status_code BETWEEN 400 AND 499))::bigint AS calls
   FROM billing_events, bounds
   WHERE account_id = :account
     AND occurred_at >= bounds.period_start AND occurred_at < bounds.period_end

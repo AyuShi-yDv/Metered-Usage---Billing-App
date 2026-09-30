@@ -2,7 +2,7 @@ TIME_SERIES_SQL = """
 WITH buckets AS (
   SELECT generate_series(date_trunc(:bucket, CAST(:start AS timestamptz)), date_trunc(:bucket, CAST(:end AS timestamptz) - interval '1 microsecond'), (:interval)::interval) AS bucket
 ), usage AS (
-  SELECT date_trunc(:bucket, occurred_at) AS bucket, count(*) FILTER (WHERE status_code BETWEEN 200 AND 499) AS calls
+  SELECT date_trunc(:bucket, occurred_at) AS bucket, count(*) FILTER (WHERE (status_code BETWEEN 200 AND 299 OR status_code BETWEEN 400 AND 499)) AS calls
   FROM billing_events
   WHERE account_id=:account_id AND occurred_at >= :start AND occurred_at < :end
   GROUP BY 1

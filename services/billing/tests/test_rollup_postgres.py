@@ -26,6 +26,15 @@ async def test_5xx_is_not_billable_but_4xx_is(sessions, make_tenant):
     assert [tuple(r) for r in await rollup_rows(sessions, t.account)] == [("/a", 2, 3)]
 
 
+async def test_only_2xx_and_4xx_are_billable_not_1xx_3xx_or_5xx(sessions, make_tenant):
+    t = await make_tenant(); h = hour()
+    statuses = [101, 200, 204, 301, 302, 399, 400, 429, 499, 500, 503]
+    await add_events(sessions, t.account, [(h, "/a", 10, code) for code in statuses])
+    await run_rollup(sessions, t.account, h)
+    # billable: 200, 204, 400, 429, 499 -> 5 of 11
+    assert [tuple(r) for r in await rollup_rows(sessions, t.account)] == [("/a", 5, 11)]
+
+
 async def test_rerunning_the_same_hour_does_not_double_count(sessions, make_tenant):
     t = await make_tenant(); h = hour()
     await add_events(sessions, t.account, [(h, "/a", 10, 200)] * 4)
