@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -73,6 +74,11 @@ async def security_headers(request: Request, call_next):
     csp = DOCS_CSP if request.url.path == "/docs" else API_CSP
     response.headers["Content-Security-Policy"] = csp
     return response
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse("/docs")
 
 
 @app.get("/docs", include_in_schema=False)

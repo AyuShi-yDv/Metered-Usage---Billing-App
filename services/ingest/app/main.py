@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .auth import authenticate
@@ -67,6 +68,11 @@ async def body_limit(request: Request, call_next):
     if length and length.isdigit() and int(length) > settings.max_body_bytes:
         return Response(status_code=413)
     return await call_next(request)
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse("/docs")
 
 
 @app.get("/docs", include_in_schema=False)
