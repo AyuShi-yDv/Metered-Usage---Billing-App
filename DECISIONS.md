@@ -1,15 +1,37 @@
-# Decisions
+# Engineering Decisions
 
-**Boundary.** Ingest owns API credentials, raw accepted events, and the outbox because these are write-path concerns. Billing owns plans, event facts, reports, rollups, and invoices; it never queries the ingest database.
+## 1. Service boundary
 
-**Billing unavailable.** Ingest still commits valid events and outbox rows, so the dashboard may show stale numbers while events queue. The UI has no staleness watermark or dead-letter alert/replay workflow yet; publishers retry and exhausted messages are retained in the DLQ for an operator.
+Ingest owns API authentication, usage-event validation, persistence,
+and the transactional outbox. Billing owns billing events, plans,
+rollups, invoices, and reporting. The services use separate databases
+so the write-heavy ingestion path remains independent from billing work.
 
-**Exactly once.** Delivery is at least once. `usage_events.event_id` prevents repeated HTTP ingestion and `billing_events.event_id` prevents repeated broker deliveries; outbox and event share one transaction.
+## 2. Billing service unavailable
 
-**Late usage.** A month closes 48 hours after month end. Later events do not alter a finalized invoice: billing creates a next-invoice adjustment calculated from the corrected period delta. This is auditable but can surprise a customer later.
+If Billing is unavailable, Ingest does not wait for Billing to process
+the event. The usage event and its outbox message are committed first,
+and the outbox publisher retries delivery when RabbitMQ/Billing becomes
+available. From the caller's perspective, a valid usage request can
+still receive HTTP 202.
 
-**Plan changes and what-if.** Plan ranges cannot overlap, and a future change closes the current range and starts another in one transaction. Invoice base fees, included calls, and overage are prorated by exact active seconds, with cents rounded after segment amounts are summed; the what-if view applies an alternative plan to the same trailing 30 days.
+## 3. Exactly-once effect under retries
 
-**Key management.** Public ingestion is on port 8000; key mutation lives on a separate 8002 listener that is not published by Compose. Demo finance has an explicit cross-account token, while optional per-account credentials cannot authorize another account; production should replace static token configuration with an authenticated identity provider. The billing proxy forwards its service token, retries GETs only, and does not replay create/rotate because a timeout could otherwise create another secret.
+Delivery is at-least-once, because messages can be retried or delivered
+more than once. Database uniqueness on `usage_events.event_id` prevents
+duplicate ingestion, while `billing_events.event_id` prevents duplicate
+billing consumption, giving the system exactly-once counting/effect
+rather than claiming exactly-once message delivery.
 
-**With another week.** Add authenticated human users, credit notes, observability, and a production secrets manager. At 100x data, partition event facts by month and replace broad p95 scans with mergeable percentile sketches.
+## 4. What I would change with another week
+
+I would improve production observability and operational controls,
+including authenticated human access, stronger production secret
+management, and clearer monitoring of stale outbox/DLQ messages.
+
+## 5. What breaks at 100x data volume
+
+Broad p95 scans and very large event tables would become increasingly
+expensive at much higher volumes. I would partition event data by time
+and move large-scale percentile reporting toward mergeable percentile
+sketches or another scalable analytical approach.
