@@ -26,9 +26,12 @@ rather than claiming exactly-once message delivery.
 
 ## 4. What I would change with another week
 
-I would first improve the ingest latency path, because the latest
-documented local benchmark is above the assignment's <50 ms p95 target.
-I would also improve production observability and operational controls,
+I would further improve the ingest latency path and production
+observability. The latest documented local benchmark meets the
+assignment's <50 ms p95 target at concurrency 4, with a measured p95
+of 49.43 ms.
+
+For production hardening, I would also improve operational controls,
 including authenticated human access, stronger production secret
 management, and clearer monitoring of stale outbox/DLQ messages.
 
