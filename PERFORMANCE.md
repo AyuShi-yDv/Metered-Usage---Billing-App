@@ -399,7 +399,7 @@ However, the latest local measurements do not meet the assignment's ingest p95 t
 
 The latest measured values were:
 
-### Concurrency 4
+### Concurrency 4 measurements
 
 ```text
 p50 = 142.64 ms
@@ -407,7 +407,7 @@ p95 = 411.56 ms
 max = 559.45 ms
 ```
 
-### Concurrency 1
+### Concurrency 1 measurements
 
 ```text
 p50 = 104.52 ms
@@ -505,6 +505,22 @@ docker compose --profile tools run --rm -e LOAD_CONCURRENCY=1 ops-tools ingest_l
 The benchmark should be run against the local Docker Compose environment so that the results represent the actual application, database, authentication cache, connection pool, and network path used by the submission.
 
 ---
+
+
+# Final Assessment
+
+The reporting-query performance requirement is demonstrated by the
+before-and-after `EXPLAIN (ANALYZE, BUFFERS)` measurements. The retained
+`(account_id, occurred_at)` index reduced execution time from
+**121.495 ms** to **18.549 ms**, an approximately **84.7% reduction**.
+
+The ingest endpoint's latest documented measurements do not meet the
+assignment's **<50 ms p95** target. At concurrency 4, p95 was
+**411.56 ms**; at concurrency 1, p95 was **204.74 ms**.
+
+These results are intentionally documented as measured. No earlier or
+more favorable measurement is substituted for the latest documented
+results.
 
 # Notes
 
