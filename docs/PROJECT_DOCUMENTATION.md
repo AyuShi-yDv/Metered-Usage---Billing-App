@@ -569,7 +569,7 @@ The key decisions are:
 - [x] Invoice generation
 - [x] SQL time series
 - [x] Zero-filled reporting
-- [x] SQL p95 latency
+- [~] SQL p95 latency
 - [x] MTD usage and projected overage
 - [x] Top-overage ranking
 - [x] Server-side account table
