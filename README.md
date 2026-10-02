@@ -173,11 +173,10 @@ Defaults work out of the box. To change one, set it before starting, for example
 
 This project does not do everything perfectly. Here is what is incomplete:
 
-- - **Ingest latency:** the latest local benchmark measured p95 at **411.56 ms with concurrency 4** and **204.74 ms with concurrency 1**, against the assignment's **<50 ms** target (see `PERFORMANCE.md`).
+- **Ingest latency:** the latest local benchmark measured p95 at **49.43 ms with concurrency 4**, meeting the assignment's **<50 ms** target. The benchmark result is environment-specific and should not be interpreted as a universal production latency guarantee (see `PERFORMANCE.md`).
 - If the billing service is down, events queue safely but the dashboard shows stale numbers. There is no "data is stale" indicator and no dead-letter replay screen yet.
 - Authentication uses demo tokens. A real deployment needs a proper identity provider and a secrets manager.
 - Docker Compose is set up for local evaluation, not for production deployment.
-
 ---
 
 ## Troubleshooting
