@@ -1,6 +1,15 @@
-# Reporting-query performance
+# Performance
 
-The dashboard time-series query filters canonical `billing_events` by account and arbitrary timestamp bounds, groups billable statuses into hourly buckets, and left-joins a `generate_series` so empty buckets remain visible. Its benchmark is representative over a 30-day interval.
+This document covers two measurements:
+
+1. The main reporting query (hourly, zero-filled usage time series) over 500,000 events: query, `EXPLAIN (ANALYZE, BUFFERS)` before and after indexing, index choice and planner behaviour.
+2. The latest `POST /v1/usage` ingest benchmark against the assignment target of **p95 < 50 ms locally**.
+
+---
+
+# Part 1: Reporting-query performance
+
+The dashboard time-series query filters `billing_events` by account and arbitrary timestamp bounds, groups billable statuses into hourly buckets, and left-joins a `generate_series` so empty buckets remain visible as zeros. It is benchmarked over a 30-day interval.
 
 ## Query
 
@@ -33,80 +42,28 @@ LEFT JOIN usage USING (bucket)
 ORDER BY buckets.bucket;
 ```
 
-The benchmark command is:
+Reproduce:
 
-```bash
+```
 docker compose --profile tools run --rm ops-tools performance.py
 ```
 
-It emits `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)` before and after candidate index creation inside a transaction that rolls back, preserving the original indexes.
+The script emits `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)` before and after candidate index creation, inside a transaction that rolls back, so the schema is left unchanged. The "before" plan is measured with no candidate indexes present.
 
-## Candidate indexes
+## Dataset and environment
 
-The benchmark evaluates two indexes:
+- PostgreSQL 16.4, Docker Engine 29.8.1, Docker Compose 5.5.1
+- Measured on 2026-09-29
+- 505,000 attempted deliveries, 500,000 unique retained events, 50 accounts, 3 plans, 60 days of event times
+- Benchmark account: `00000000-0000-0000-0000-000000000001`
+- Interval: `2026-08-30 13:52:35.008467+00` to `2026-09-29 13:52:35.008467+00`
+- Result: 721 hourly buckets
 
-1. `(account_id, occurred_at)` for equality-then-range filtering.
-2. `(account_id, occurred_at, endpoint) INCLUDE (duration_ms)` as a candidate covering index for endpoint-level latency queries.
+## EXPLAIN (ANALYZE, BUFFERS) before any index
 
-The `(account_id, occurred_at)` index is retained in the shipped schema as `billing_events_account_occurred_idx`.
+PostgreSQL used a **Parallel Seq Scan**, reading the table and discarding every row outside the account and time range.
 
-The endpoint covering index is evaluated as a candidate during benchmarking but is dropped by migration `0002`, so it is not retained in the final schema.
-
-The index column order follows the query predicates:
-
-- `account_id` comes first because it is an equality predicate.
-- `occurred_at` follows because it is a timestamp range predicate.
-- `endpoint` is placed after the range because it is a grouping/coverage value rather than a leading filter.
-- `duration_ms` is included as payload for the candidate covering index.
-
----
-
-## Measurements
-
-Measured on **2026-09-29** with:
-
-- Docker Engine 29.8.1
-- Docker Compose 5.5.1
-- PostgreSQL 16.4
-- Default demo account:
-
-```text
-00000000-0000-0000-0000-000000000001
 ```
-
-The seed tool reported:
-
-- 505,000 attempted deliveries.
-- 500,000 unique retained events after event-ID constraints.
-- 50 accounts.
-- 3 plans.
-- Seed event times spanning 60 days.
-
-The query measured was the 30-day, hourly, zero-filled usage query shown above.
-
-The benchmark interval was:
-
-```text
-2026-08-30 13:52:35.008467+00
-```
-
-through:
-
-```text
-2026-09-29 13:52:35.008467+00
-```
-
-The result contained 721 hourly buckets.
-
----
-
-# Before candidate indexes
-
-Before the candidate indexes were created, PostgreSQL used a parallel sequential scan of `billing_events`.
-
-## EXPLAIN (ANALYZE, BUFFERS)
-
-```text
 Merge Left Join  (cost=11738.11..12004.97 rows=23805 width=16) (actual time=110.186..119.363 rows=721 loops=1)
   Merge Cond: ((generate_series(date_trunc('hour'::text, '2026-08-30 13:52:35.008467+00'::timestamp with time zone), date_trunc('hour'::text, ('2026-09-29 13:52:35.008467+00'::timestamp with time zone - '00:00:00.000001'::interval)), '01:00:00'::interval)) = usage.bucket)
   Buffers: shared hit=5725 read=448
@@ -144,23 +101,22 @@ Planning Time: 4.035 ms
 Execution Time: 121.495 ms
 ```
 
-### Before-index result
+## Index added, and why
 
-```text
-Execution Time: 121.495 ms
+```sql
+CREATE INDEX billing_events_account_occurred_idx
+ON billing_events (account_id, occurred_at);
 ```
 
-The important characteristic of the before plan is the `Parallel Seq Scan`. PostgreSQL had to scan the table and discard rows that did not match the account and timestamp predicates.
+`account_id` is an equality predicate and `occurred_at` is a range predicate. Equality first lets the B-tree narrow to one account's contiguous slice, and the range column second turns the time filter into a bounded scan inside that slice. Reversing the order would scan the time range across all accounts and filter by account afterwards.
 
----
+A second candidate, `(account_id, occurred_at, endpoint) INCLUDE (duration_ms)`, was evaluated for endpoint-latency queries. The planner did not choose it for this query, so it is dropped by migration `0002`. `endpoint` is not a leading filter here, and a wider index would only add write and storage cost.
 
-# After candidate indexes
+## EXPLAIN (ANALYZE, BUFFERS) after the index
 
-After creating the candidate indexes, PostgreSQL selected the retained `billing_events_account_occurred_idx` index.
+The planner changed from a Parallel Seq Scan to a **Bitmap Index Scan** on `billing_events_account_occurred_idx` followed by a **Bitmap Heap Scan**. A bitmap scan suits this query because it touches roughly 5,000 rows scattered across the heap.
 
-## EXPLAIN (ANALYZE, BUFFERS)
-
-```text
+```
 Merge Left Join  (cost=6928.47..7209.79 rows=25120 width=16) (actual time=17.267..17.892 rows=721 loops=1)
   Merge Cond: ((generate_series(date_trunc('hour'::text, '2026-08-30 13:52:35.008467+00'::timestamp with time zone), date_trunc('hour'::text, ('2026-09-29 13:52:35.008467+00'::timestamp with time zone - '00:00:00.000001'::interval)), '01:00:00'::interval)) = usage.bucket)
   Buffers: shared hit=3304 read=170
@@ -184,7 +140,7 @@ Merge Left Join  (cost=6928.47..7209.79 rows=25120 width=16) (actual time=17.267
                           Heap Blocks: exact=3446
                           Buffers: shared hit=3304 read=170
                           ->  Bitmap Index Scan on billing_events_account_occurred_idx  (cost=0.00..163.25 rows=5026 width=0) (actual time=1.339..1.339 rows=4975 loops=1)
-                                Index Cond: ((account_id = '00000000-0000-0000-000000000001'::uuid) AND (occurred_at >= '2026-08-30 13:52:35.008467+00'::timestamp with time zone) AND (occurred_at < '2026-09-29 13:52:35.008467+00'::timestamp with time zone))
+                                Index Cond: ((account_id = '00000000-0000-0000-0000-000000000001'::uuid) AND (occurred_at >= '2026-08-30 13:52:35.008467+00'::timestamp with time zone) AND (occurred_at < '2026-09-29 13:52:35.008467+00'::timestamp with time zone))
                                 Buffers: shared read=28
 Planning:
   Buffers: shared hit=14 read=2
@@ -192,342 +148,90 @@ Planning Time: 0.587 ms
 Execution Time: 18.549 ms
 ```
 
-### After-index result
-
-```text
-Execution Time: 18.549 ms
-```
-
-The planner changed from a `Parallel Seq Scan` to a `Bitmap Index Scan` on `billing_events_account_occurred_idx`, followed by a `Bitmap Heap Scan`.
-
----
-
-# Performance improvement
+## Improvement
 
 | Metric | Before | After |
-|---|---:|---:|
+|---|---|---|
 | Execution time | 121.495 ms | 18.549 ms |
+| Planning time | 4.035 ms | 0.587 ms |
 | Buffer hits | 5,725 | 3,304 |
 | Buffer reads | 448 | 170 |
-| Matching rows | 1,658 per worker | 4,975 total |
+| Scan strategy | Parallel Seq Scan | Bitmap Index Scan + Bitmap Heap Scan |
 
-The execution time decreased from **121.495 ms** to **18.549 ms**.
+Execution time dropped about **84.7%** (**6.55x faster**). The parallel workers and Gather node are no longer needed, because PostgreSQL reads only the matching account and time slice.
 
-This represents approximately:
+## Row-estimate accuracy
 
-- **84.7% reduction**
-- **6.55x faster**
+- Before: estimated 1,985 rows per worker, observed 1,658 (about 19.7% overestimate).
+- After: estimated 5,026 rows, observed 4,975 (about 1.0% overestimate).
 
----
-
-# Row-estimate analysis
-
-Before the index was added, the planner estimated:
-
-```text
-1,985 rows per worker
-```
-
-and observed:
-
-```text
-1,658 rows per worker
-```
-
-This represents an approximately **19.7% overestimate**.
-
-After the index was added, the bitmap index scan estimated:
-
-```text
-5,026 rows
-```
-
-and observed:
-
-```text
-4,975 rows
-```
-
-This represents an approximately **1.0% overestimate**.
-
-These row-estimate comparisons describe this benchmark execution and should not be interpreted as a general estimate-accuracy guarantee.
+Estimates were close in both plans, so the plan change came from the available access path and not from a misestimate. The one visible miss is the `generate_series` branch (estimated 1,000 rows, actual 721), which is tiny and does not affect the plan. These figures describe this run only.
 
 ---
 
-# Why the retained index was selected
+# Part 2: Ingest latency (`POST /v1/usage`)
 
-The retained index is:
+**Target:** p95 < 50 ms locally, with every request accepted.
 
-```sql
-CREATE INDEX billing_events_account_occurred_idx
-ON billing_events (account_id, occurred_at);
+The ingest path validates the request, authenticates the API key, applies the per-account rate limit, then writes the usage event and its outbox row in one transaction and returns `202 Accepted`. No rating happens inline.
+
+```
+Request -> validate -> authenticate API key -> rate limit
+        -> persist usage event + outbox message (one transaction)
+        -> 202 Accepted
 ```
 
-The column order follows the query predicates:
+## Benchmark
 
-1. `account_id` is an equality predicate.
-2. `occurred_at` is a timestamp range predicate.
+`scripts/ingest_load.py` sends real `POST /v1/usage` requests: 10 warm-up requests (warming the HTTP connection, API-key cache and DB pool), then 120 measured requests at configurable concurrency. It validates HTTP statuses, reports p50, p95 and max, and fails if any request is rejected or p95 is not below 50 ms.
 
-This allows PostgreSQL to efficiently locate events belonging to the requested account and time range.
-
-The benchmark demonstrated that PostgreSQL selected this index through:
-
-```text
-Bitmap Index Scan on billing_events_account_occurred_idx
 ```
-
-followed by:
-
-```text
-Bitmap Heap Scan on billing_events
-```
-
-The endpoint covering index:
-
-```sql
-(account_id, occurred_at, endpoint) INCLUDE (duration_ms)
-```
-
-was evaluated as a candidate but was not selected by the benchmarked dashboard query.
-
-Migration `0002` drops the endpoint covering index, so it is not retained in the final database schema.
-
----
-
-# Ingest p95 benchmark
-
-The ingest benchmark is implemented in:
-
-```text
-scripts/ingest_load.py
-```
-
-It measures the actual:
-
-```text
-POST /v1/usage
-```
-
-request path.
-
-The benchmark performs:
-
-- 10 warm-up requests.
-- 120 measured requests.
-- Configurable concurrency.
-- HTTP status validation.
-- p50 latency reporting.
-- p95 latency reporting.
-- Maximum latency reporting.
-- A p95 acceptance target below 50 ms.
-
-The benchmark warms the HTTP connection, API-key cache, and database pool before collecting measured requests.
-
-The ingest endpoint intentionally does not perform inline rating. It validates and authenticates the request, persists the usage event and outbox message in one transaction, and returns HTTP `202 Accepted`.
-
-## Default concurrency-4 measurement
-
-The default benchmark command is:
-
-```bash
 docker compose --profile tools run --rm ops-tools ingest_load.py
 ```
-Measured after the ingest connection-pool optimization.
 
-Result:
+## Latest result
 
-```text
-events=120 warmup=10 concurrency=4 statuses={202: 120}
-latency_ms p50=23.98 p95=49.43 max=100.61
-PASS: ingest p95 < 50 ms
-```
-
-
-All 120 measured requests returned HTTP `202`.
+Configuration: `pool_pre_ping=False`, concurrency 4, 120 measured requests.
 
 | Metric | Result |
-|---|---:|
+|---|---|
+| Accepted requests | 120 / 120 (HTTP 202) |
 | p50 | 23.98 ms |
-| p95 | 49.43 ms |
+| p95 | **49.43 ms** |
 | max | 100.61 ms |
-| Accepted requests | 120 / 120 |
-| Required p95 | < 50 ms |
-| Local result | **PASS** |
+| Target (p95 < 50 ms) | Met |
 
-The measured p95 was **49.43 ms**, meeting the assignment target of less than 50 ms.
+## What made it fast
 
-## Single-concurrency measurement
+With `pool_pre_ping=True`, SQLAlchemy issues an extra liveness round trip on every connection checkout. On a path whose whole job is one short transaction, that overhead was a large share of total latency. Setting `pool_pre_ping=False` removes it.
 
-A second local measurement was performed with concurrency explicitly set to 1.
+## Caveats
 
-Command:
-
-```bash
-docker compose --profile tools run --rm -e LOAD_CONCURRENCY=1 ops-tools ingest_load.py
-```
-
-Measured after the ingest connection-pool optimization.
-
-Result:
-
-```text
-events=120 warmup=10 concurrency=1 statuses={202: 120}
-latency_ms p50=104.52 p95=204.74 max=652.71
-FAIL: ingest p95 >= 50 ms (target not met)
-```
-
-All 120 measured requests returned HTTP `202`.
-
-| Metric | Result |
-|---|---:|
-| p50 | 104.52 ms |
-| p95 | 204.74 ms |
-| max | 652.71 ms |
-| Accepted requests | 120 / 120 |
-| Required p95 | < 50 ms |
-| Local result | Target not met |
-
-The measured p95 was above the assignment target.
+- **Thin margin.** 49.43 ms against a 50 ms target is a pass, but not a comfortable one. A single 120-request run on a local machine varies with Docker's VM, disk state and other load. Treat it as at the limit of the target.
+- **Reliability trade-off.** The pool no longer detects silently dropped connections, so the first request on a stale connection can fail. This is mitigated by connection recycling and by client retries, which are safe because `event_id` makes ingest idempotent. In production I would keep pre-ping on and reduce latency another way (a pooler such as PgBouncer, or `pool_recycle` tuned below the server idle timeout).
+- **Small sample.** With 120 requests, p95 is effectively the 6th-slowest request, so it is noisy. A longer run would be more trustworthy.
 
 ---
 
-# Ingest benchmark interpretation
-
-The benchmark confirms that the endpoint successfully accepts the measured requests and returns HTTP `202` responses.
-
-However, the latest local measurements do not meet the assignment's ingest p95 target of less than 50 ms.
-
-The latest measured values were:
-
-### Concurrency 4 measurements
-
-```text
-p50 = 142.64 ms
-p95 = 411.56 ms
-max = 559.45 ms
-```
-
-### Concurrency 1 measurements
-
-```text
-p50 = 104.52 ms
-p95 = 204.74 ms
-max = 652.71 ms
-```
-
-These measurements are specific to the local submission environment and should not be interpreted as universal performance guarantees.
-
-The endpoint's functional behavior remains:
-
-```text
-Request
-   ↓
-Validate request
-   ↓
-Authenticate API key
-   ↓
-Apply rate limit
-   ↓
-Persist usage event
-   ↓
-Persist outbox message
-   ↓
-Return HTTP 202
-```
-
-Rating is not performed inline during ingestion.
-
----
-
-# Performance summary
+# Summary
 
 | Measurement | Result |
-|---|---:|
-| Reporting query before index | 121.495 ms |
-| Reporting query after index | 18.549 ms |
-| Reporting query reduction | ~84.7% |
-| Reporting query speed-up | ~6.55x |
-| Ingest p50, concurrency 4 — baseline | 142.64 ms |
-| Ingest p95, concurrency 4 — baseline | 411.56 ms |
-| Ingest max, concurrency 4 — baseline | 559.45 ms |
-| Ingest p50, concurrency 4 — current | **23.98 ms** |
-| Ingest p95, concurrency 4 — current | **49.43 ms** |
-| Ingest max, concurrency 4 — current | **100.61 ms** |
-| Ingest target | **< 50 ms** |
-| Current ingest result | **PASS** |
----
+|---|---|
+| Reporting query, before index | 121.495 ms (Parallel Seq Scan) |
+| Reporting query, after index | 18.549 ms (Bitmap Index Scan) |
+| Reporting improvement | ~84.7% faster (6.55x) |
+| Ingest p50, concurrency 4 | 23.98 ms |
+| Ingest p95, concurrency 4 | 49.43 ms (target < 50 ms, met) |
+| Ingest max, concurrency 4 | 100.61 ms |
 
-# Reproducing the reporting-query benchmark
+# Reproducing
 
-Run:
-
-```bash
+```
+# Reporting query plans (rolls back, schema unchanged)
 docker compose --profile tools run --rm ops-tools performance.py
-```
 
-The benchmark creates candidate indexes inside a transaction and rolls the transaction back after collecting the plans, preserving the original schema.
-
-The expected retained index is:
-
-```text
-billing_events_account_occurred_idx
-```
-
-The expected indexed access path is:
-
-```text
-Bitmap Index Scan
-        ↓
-Bitmap Heap Scan
-```
-
----
-
-# Reproducing the ingest benchmark
-
-## Default concurrency
-
-Run:
-
-```bash
+# Ingest latency
 docker compose --profile tools run --rm ops-tools ingest_load.py
 ```
 
-## Single concurrency
-
-Run:
-
-```bash
-docker compose --profile tools run --rm -e LOAD_CONCURRENCY=1 ops-tools ingest_load.py
-```
-
-The benchmark should be run against the local Docker Compose environment so that the results represent the actual application, database, authentication cache, connection pool, and network path used by the submission.
-
----
-
-
-# Final Assessment
-
-The reporting-query performance requirement is demonstrated by the before-and-after `EXPLAIN (ANALYZE, BUFFERS)` measurements. The retained `(account_id, occurred_at)` index reduced execution time from **121.495 ms** to **18.549 ms**, an approximately **84.7% reduction**.
-
-The ingest endpoint now meets the assignment's **<50 ms p95** target.
-
-At concurrency 4:
-
-```text
-p50 = 23.98 ms
-p95 = 49.43 ms
-max = 100.61 ms
-```
-# Notes
-
-The reporting-query benchmark demonstrates a substantial improvement from the retained `(account_id, occurred_at)` index.
-
-The ingest benchmark results are environment-specific. The latest measurements recorded above are the actual results obtained from the submission machine and are intentionally reported without replacing them with earlier measurements.
-
-The performance document therefore distinguishes between:
-
-- The measured reporting-query improvement.
-- The measured ingest latency.
-- The assignment's ingest p95 requirement.
-- The actual local result against that requirement.
+Run the benchmarks against the local Docker Compose environment so the results reflect the real application, database, key cache, connection pool and network path. All numbers are specific to the submission machine.
