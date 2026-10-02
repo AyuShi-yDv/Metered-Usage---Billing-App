@@ -6,6 +6,27 @@ A billing backend and dashboard for a SaaS product that charges per API call. Cu
 
 ---
 
+## 🚀 Live Demo
+
+**Production Demo**
+
+The deployed dashboard can be opened here:
+https://imaginative-cooperation-production-dd42.up.railway.app/
+
+The Billing service Swagger documentation is available here:
+https://intelligent-stillness-production-0dc4.up.railway.app/docs
+
+The Ingest service Swagger documentation is available here:
+https://metered-usage-billing-app-production-e8d5.up.railway.app/docs
+
+| Live URL |
+|---|---|
+| Dashboard (frontend) | https://imaginative-cooperation-production-dd42.up.railway.app/ |
+| Billing API docs (Swagger) | https://intelligent-stillness-production-0dc4.up.railway.app/docs |
+| Ingest API docs (Swagger) | https://metered-usage-billing-app-production-e8d5.up.railway.app/docs |
+
+---
+
 ## Quick start
 
 **You need:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running) and Git. Nothing else.
