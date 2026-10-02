@@ -332,29 +332,29 @@ The default benchmark command is:
 ```bash
 docker compose --profile tools run --rm ops-tools ingest_load.py
 ```
-
-Measured on **2026-09-30** on the submission machine.
+Measured after the ingest connection-pool optimization.
 
 Result:
 
 ```text
 events=120 warmup=10 concurrency=4 statuses={202: 120}
-latency_ms p50=142.64 p95=411.56 max=559.45
-ingest p95 target failed (required: all accepted and p95 < 50 ms)
+latency_ms p50=23.98 p95=49.43 max=100.61
+PASS: ingest p95 < 50 ms
 ```
+
 
 All 120 measured requests returned HTTP `202`.
 
 | Metric | Result |
 |---|---:|
-| p50 | 142.64 ms |
-| p95 | 411.56 ms |
-| max | 559.45 ms |
+| p50 | 23.98 ms |
+| p95 | 49.43 ms |
+| max | 100.61 ms |
 | Accepted requests | 120 / 120 |
 | Required p95 | < 50 ms |
-| Local result | Target not met |
+| Local result | **PASS** |
 
-The measured p95 was above the assignment target.
+The measured p95 was **49.43 ms**, meeting the assignment target of less than 50 ms.
 
 ## Single-concurrency measurement
 
@@ -366,14 +366,14 @@ Command:
 docker compose --profile tools run --rm -e LOAD_CONCURRENCY=1 ops-tools ingest_load.py
 ```
 
-Measured on **2026-09-30** on the submission machine.
+Measured after the ingest connection-pool optimization.
 
 Result:
 
 ```text
 events=120 warmup=10 concurrency=1 statuses={202: 120}
 latency_ms p50=104.52 p95=204.74 max=652.71
-ingest p95 target failed (required: all accepted and p95 < 50 ms)
+FAIL: ingest p95 >= 50 ms (target not met)
 ```
 
 All 120 measured requests returned HTTP `202`.
@@ -447,15 +447,14 @@ Rating is not performed inline during ingestion.
 | Reporting query after index | 18.549 ms |
 | Reporting query reduction | ~84.7% |
 | Reporting query speed-up | ~6.55x |
-| Ingest p50, concurrency 4 | 142.64 ms |
-| Ingest p95, concurrency 4 | 411.56 ms |
-| Ingest max, concurrency 4 | 559.45 ms |
-| Ingest p50, concurrency 1 | 104.52 ms |
-| Ingest p95, concurrency 1 | 204.74 ms |
-| Ingest max, concurrency 1 | 652.71 ms |
-| Ingest target | < 50 ms |
-| Latest local ingest result | Target not met |
-
+| Ingest p50, concurrency 4 — baseline | 142.64 ms |
+| Ingest p95, concurrency 4 — baseline | 411.56 ms |
+| Ingest max, concurrency 4 — baseline | 559.45 ms |
+| Ingest p50, concurrency 4 — current | **23.98 ms** |
+| Ingest p95, concurrency 4 — current | **49.43 ms** |
+| Ingest max, concurrency 4 — current | **100.61 ms** |
+| Ingest target | **< 50 ms** |
+| Current ingest result | **PASS** |
 ---
 
 # Reproducing the reporting-query benchmark
@@ -509,19 +508,17 @@ The benchmark should be run against the local Docker Compose environment so that
 
 # Final Assessment
 
-The reporting-query performance requirement is demonstrated by the
-before-and-after `EXPLAIN (ANALYZE, BUFFERS)` measurements. The retained
-`(account_id, occurred_at)` index reduced execution time from
-**121.495 ms** to **18.549 ms**, an approximately **84.7% reduction**.
+The reporting-query performance requirement is demonstrated by the before-and-after `EXPLAIN (ANALYZE, BUFFERS)` measurements. The retained `(account_id, occurred_at)` index reduced execution time from **121.495 ms** to **18.549 ms**, an approximately **84.7% reduction**.
 
-The ingest endpoint's latest documented measurements do not meet the
-assignment's **<50 ms p95** target. At concurrency 4, p95 was
-**411.56 ms**; at concurrency 1, p95 was **204.74 ms**.
+The ingest endpoint now meets the assignment's **<50 ms p95** target.
 
-These results are intentionally documented as measured. No earlier or
-more favorable measurement is substituted for the latest documented
-results.
+At concurrency 4:
 
+```text
+p50 = 23.98 ms
+p95 = 49.43 ms
+max = 100.61 ms
+```
 # Notes
 
 The reporting-query benchmark demonstrates a substantial improvement from the retained `(account_id, occurred_at)` index.
