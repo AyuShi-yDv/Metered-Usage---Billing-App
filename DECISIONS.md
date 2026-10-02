@@ -10,10 +10,11 @@ so the write-heavy ingestion path remains independent from billing work.
 ## 2. Billing service unavailable
 
 If Billing is unavailable, Ingest does not wait for Billing to process
-the event. The usage event and its outbox message are committed first,
-and the outbox publisher retries delivery when RabbitMQ/Billing becomes
-available. From the caller's perspective, a valid usage request can
-still receive HTTP 202.
+the event. The usage event and its outbox message are committed
+transactionally first. The outbox publisher can continue delivery
+through RabbitMQ, and Billing processes the event when it becomes
+available again. From the caller's perspective, a valid usage request
+can still receive HTTP 202.
 
 ## 3. Exactly-once effect under retries
 
@@ -25,7 +26,9 @@ rather than claiming exactly-once message delivery.
 
 ## 4. What I would change with another week
 
-I would improve production observability and operational controls,
+I would first improve the ingest latency path, because the latest
+documented local benchmark is above the assignment's <50 ms p95 target.
+I would also improve production observability and operational controls,
 including authenticated human access, stronger production secret
 management, and clearer monitoring of stale outbox/DLQ messages.
 
