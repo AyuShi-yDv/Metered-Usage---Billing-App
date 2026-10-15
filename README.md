@@ -38,7 +38,7 @@ cd Metered-Usage---Billing-App
 docker compose up --build
 ```
 
-**3. Wait for the banner.** The first start may take a few minutes<!-- CHANGE: Removed the stray space before the colon in "minutes : it builds". -->: it builds the images, creates the databases and loads 500,000 sample usage events. When everything is ready, the terminal prints:
+**3. Wait for the banner.** The first start may take a few minutes: it builds the images, creates the databases and loads 500,000 sample usage events. When everything is ready, the terminal prints:
 
 ```text
 ALL SERVICES ARE READY. Click a link to open it:
