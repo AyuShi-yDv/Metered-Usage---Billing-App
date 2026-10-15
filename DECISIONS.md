@@ -41,3 +41,13 @@ Broad p95 scans and very large event tables would become increasingly
 expensive at much higher volumes. I would partition event data by time
 and move large-scale percentile reporting toward mergeable percentile
 sketches or another scalable analytical approach.
+
+## 6. Late events after their period is invoiced
+
+Events arriving within **24 hours** are billed on the normal invoice, because finalization waits **48 hours** after month end.
+
+If a backlog delivers an event after its invoice is final:
+
+- The final invoice is **never edited**.
+- The extra overage is stored as a `late_adjustments` row.
+- That row is billed **once**, as a line item on the account's next invoice.
