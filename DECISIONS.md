@@ -27,9 +27,7 @@ rather than claiming exactly-once message delivery.
 ## 4. What I would change with another week
 
 I would further improve the ingest latency path and production
-observability. The latest documented local benchmark meets the
-assignment's <50 ms p95 target at concurrency 4, with a measured p95
-of 49.43 ms.
+observability. I previously measured a p95 of 49.43 ms, but recent runs on Docker Desktop for Windows ranged from about 40 ms to 431 ms, so I can't reliably reproduce that result.
 
 For production hardening, I would also improve operational controls,
 including authenticated human access, stronger production secret
